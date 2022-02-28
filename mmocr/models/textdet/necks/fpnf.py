@@ -79,6 +79,11 @@ class FPNF(BaseModule):
             act_cfg=act_cfg,
             inplace=False)
 
+        self.weight_feature = nn.Parameter(
+            torch.ones(len(self.backbone_end_level), dtype=torch.float32,
+                       requires_grad=True)
+        )
+
     @auto_fp16()
     def forward(self, inputs):
         """
@@ -114,6 +119,15 @@ class FPNF(BaseModule):
         for i in range(1, used_backbone_levels):
             laterals[i] = F.interpolate(
                 laterals[i], size=bottom_shape, mode='nearest')
+
+        weights = F.relu(self.weight_feature)
+        norm_weights = weights / (weights.sum() + 0.0001)
+
+        for i, lateral in enumerate(laterals):
+            norm_weight = norm_weights[i]
+            lateral = lateral * norm_weight
+            lateral = swish(lateral)
+            laterals[i] = lateral
 
         if self.fusion_type == 'concat':
             out = torch.cat(laterals, 1)
