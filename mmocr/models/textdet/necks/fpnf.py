@@ -416,12 +416,12 @@ class SingleBiFPN(BaseModule):
         for i in range(1, used_backbone_levels):
             output_feats[i] = F.interpolate(
                 output_feats[i], size=bottom_shape, mode='nearest')
-玩        if self.fusion_type == 'concat':
+        if self.fusion_type == 'concat':
             output_feats = torch.cat(output_feats, 1)
         elif self.fusion_type == 'add':
             output_feats = output_feats[0]
             for i in range(1, used_backbone_levels):
                 output_feats += output_feats[i]
 
-        out = self.output_convs(out)
+        output_feats = self.output_convs(output_feats)
         return output_feats
