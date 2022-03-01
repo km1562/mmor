@@ -171,7 +171,10 @@ class SingleBiFPN(BaseModule):
             out_channels (int): number of channels in the output feature maps.
             norm (str): the normalization to use.
         """
-        super(SingleBiFPN, self).__init__()
+        super().__init__(init_cfg=init_cfg)
+        conv_cfg = None
+        norm_cfg = dict(type='BN')
+        act_cfg = dict(type='ReLU')
 
         self.out_channels = out_channels
         # build 5-levels bifpn
@@ -219,9 +222,9 @@ class SingleBiFPN(BaseModule):
         else:
             raise NotImplementedError
 
-        node_info = [_ for _ in in_channels_list]
+        node_info = [_ for _ in in_channels]
 
-        num_output_connections = [0 for _ in in_channels_list]
+        num_output_connections = [0 for _ in in_channels]
         for fnode in self.nodes:
             feat_level = fnode["feat_level"]
             inputs_offsets = fnode["inputs_offsets"]
@@ -231,12 +234,22 @@ class SingleBiFPN(BaseModule):
 
                 in_channels = node_info[input_offset]
                 if in_channels != out_channels:
-                    lateral_conv = Conv2d(
+                    # lateral_conv = Conv2d(
+                    #     in_channels,
+                    #     out_channels,
+                    #     kernel_size=1,
+                    #     norm=get_norm(norm, out_channels)
+                    # )
+
+                    lateral_conv = ConvModule(
                         in_channels,
                         out_channels,
-                        kernel_size=1,
-                        norm=get_norm(norm, out_channels)
-                    )
+                        1,
+                        conv_cfg=conv_cfg,
+                        norm_cfg=norm_cfg,
+                        act_cfg=act_cfg,
+                        inplace=False)
+
                     self.add_module(
                         "lateral_{}_f{}".format(input_offset, feat_level), lateral_conv
                     )
@@ -252,16 +265,23 @@ class SingleBiFPN(BaseModule):
 
             # generate convolutions after combination
             name = "outputs_f{}_{}".format(feat_level, inputs_offsets_str)
-            self.add_module(name, Conv2d(
+            # self.add_module(name, Conv2d(
+            #     out_channels,
+            #     out_channels,
+            #     kernel_size=3,
+            #     padding=1,
+            #     norm=get_norm(norm, out_channels),
+            #     bias=(norm == "")
+            # ))
+            self.add_module(name, ConvModule(
+                in_channels,
                 out_channels,
-                out_channels,
-                kernel_size=3,
-                padding=1,
-                norm=get_norm(norm, out_channels),
-                bias=(norm == "")
-            ))
-
-
+                1,
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg,
+                inplace=False)
+            )
         self.fusion_type = fusion_type
 
         if self.fusion_type == 'concat':
