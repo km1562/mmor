@@ -177,6 +177,7 @@ class SingleBiFPN(BaseModule):
         act_cfg = dict(type='ReLU')
 
         self.out_channels = out_channels
+        self.backbone_end_level = len(in_channels)
         # build 5-levels bifpn
         if len(in_channels) == 5:
             self.nodes = [
@@ -250,8 +251,9 @@ class SingleBiFPN(BaseModule):
                         act_cfg=act_cfg,
                         inplace=False)
 
-                    self.add_module(
-                        "lateral_{}_f{}".format(input_offset, feat_level), lateral_conv
+                    self.add_module(  #命名是 不同的input_node+不同的层
+                        "lateral_{}_feat_level{}".format(input_offset, feat_level), lateral_conv
+
                     )
             node_info.append(out_channels)
             num_output_connections.append(0)
@@ -273,8 +275,8 @@ class SingleBiFPN(BaseModule):
             #     norm=get_norm(norm, out_channels),
             #     bias=(norm == "")
             # ))
-            self.add_module(name, ConvModule(
-                in_channels,
+            self.add_module(name, ConvModule(  #每一个新生成的节点进行一次卷积操作
+                out_channels,
                 out_channels,
                 1,
                 conv_cfg=conv_cfg,
@@ -290,6 +292,20 @@ class SingleBiFPN(BaseModule):
             feature_channels = 256
         else:
             raise NotImplementedError
+
+
+        self.fpn_convs = ModuleList()
+        for i in range(self.backbone_end_level - 1):
+            fpn_conv = ConvModule(
+                out_channels,
+                out_channels,
+                3,
+                padding=1,
+                conv_cfg=conv_cfg,
+                norm_cfg=norm_cfg,
+                act_cfg=act_cfg,
+                inplace=False)
+            self.fpn_convs.append(fpn_conv)
 
         self.output_convs = ConvModule(
             feature_channels,
@@ -329,7 +345,7 @@ class SingleBiFPN(BaseModule):
 
                 # reduction
                 if input_node.size(1) != self.out_channels:
-                    name = "lateral_{}_f{}".format(input_offset, feat_level)
+                    name = "lateral_{}_feat_level{}".format(input_offset, feat_level)
                     input_node = self.__getattr__(name)(input_node)
 
                 # maybe downsample
@@ -385,7 +401,22 @@ class SingleBiFPN(BaseModule):
             else:
                 raise ValueError()
 
-        if self.fusion_type == 'concat':
+        # build top-down path
+        used_backbone_levels = len(output_feats)
+        for i in range(used_backbone_levels - 1, 0, -1):
+            # step 1: upsample to level i-1 size and add level i-1
+            prev_shape = output_feats[i - 1].shape[2:]
+            output_feats[i - 1] += F.interpolate(
+                output_feats[i], size=prev_shape, mode='nearest')
+            # step 2: smooth level i-1
+            output_feats[i - 1] = self.fpn_convs[i - 1](output_feats[i - 1])
+
+        # upsample and cont
+        bottom_shape = output_feats[0].shape[2:]
+        for i in range(1, used_backbone_levels):
+            output_feats[i] = F.interpolate(
+                output_feats[i], size=bottom_shape, mode='nearest')
+玩        if self.fusion_type == 'concat':
             output_feats = torch.cat(output_feats, 1)
         elif self.fusion_type == 'add':
             output_feats = output_feats[0]
