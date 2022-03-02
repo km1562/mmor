@@ -126,6 +126,7 @@ class FPNF(BaseModule):
         weights = F.relu(self.weight_feature)
         norm_weights = weights / (weights.sum() + 0.0001)
 
+        #这种直接覆盖回原来的变量，会有问题吗？
         for i, lateral in enumerate(laterals):
             norm_weight = norm_weights[i]
             lateral = lateral * norm_weight
@@ -284,6 +285,8 @@ class SingleBiFPN(BaseModule):
                 act_cfg=act_cfg,
                 inplace=False)
             )
+
+
         self.fusion_type = fusion_type
 
         if self.fusion_type == 'concat':
@@ -316,6 +319,18 @@ class SingleBiFPN(BaseModule):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg,
             inplace=False)
+
+        # self.down_conv = ConvModule(
+        #     out_channels,
+        #     out_channels,
+        #     3,
+        #     padding =1,
+        #     stride =2,
+        #     conv_cfg=None,
+        #     norm_cfg=norm_cfg,
+        #     act_cfg=act_cfg,
+        #     inplace=False)
+
 
     def forward(self, feats):
         """
@@ -358,6 +373,8 @@ class SingleBiFPN(BaseModule):
                         input_node, kernel_size=(height_stride_size + 1, width_stride_size + 1),
                         stride=(height_stride_size, width_stride_size), padding=1
                     )
+                    # input_node = self.down_conv(input_node)
+
                 elif h <= target_h and w <= target_w:
                     if h < target_h or w < target_w:
                         input_node = F.interpolate(
@@ -374,6 +391,7 @@ class SingleBiFPN(BaseModule):
                         input_node, kernel_size=(height_stride_size + 2, width_stride_size + 1),
                         stride=(height_stride_size, width_stride_size), padding=1
                     )
+                    # input_node = self.down_conv(input_node)
                 else:
                     raise NotImplementedError()
                 input_nodes.append(input_node)
@@ -406,7 +424,10 @@ class SingleBiFPN(BaseModule):
         for i in range(used_backbone_levels - 1, 0, -1):
             # step 1: upsample to level i-1 size and add level i-1
             prev_shape = output_feats[i - 1].shape[2:]
-            output_feats[i - 1] += F.interpolate(
+            # output_feats[i - 1] += F.interpolate(
+            #     output_feats[i], size=prev_shape, mode='nearest')
+
+            output_feats[i - 1] = output_feats[i - 1] + F.interpolate(
                 output_feats[i], size=prev_shape, mode='nearest')
             # step 2: smooth level i-1
             output_feats[i - 1] = self.fpn_convs[i - 1](output_feats[i - 1])
@@ -417,11 +438,11 @@ class SingleBiFPN(BaseModule):
             output_feats[i] = F.interpolate(
                 output_feats[i], size=bottom_shape, mode='nearest')
         if self.fusion_type == 'concat':
-            output_feats = torch.cat(output_feats, 1)
+            out = torch.cat(output_feats, 1)
         elif self.fusion_type == 'add':
-            output_feats = output_feats[0]
+            out = output_feats[0]
             for i in range(1, used_backbone_levels):
-                output_feats += output_feats[i]
+                out += output_feats[i]
 
-        output_feats = self.output_convs(output_feats)
-        return output_feats
+        out = self.output_convs(out)
+        return out
