@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+import cv2.cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -87,6 +88,10 @@ class FPNF(BaseModule):
                        requires_grad=True)
         )
 
+        self.use_asf = use_asf
+        if self.use_asf:
+            self.ASF = ASF(feature_channels, asf_type=self.use_asf)
+
     @auto_fp16()
     def forward(self, inputs):
         """
@@ -141,6 +146,8 @@ class FPNF(BaseModule):
                 out += laterals[i]
         else:
             raise NotImplementedError
+
+        out = self.ASF(out)
         out = self.output_convs(out)
 
         return out
@@ -153,10 +160,11 @@ class SingleBiFPN(BaseModule):
     """
 
     def __init__(
-        self,
+            self,
             in_channels=[256, 512, 1024, 2048],
             out_channels=256,
             fusion_type='concat',
+            use_asf=False,
             init_cfg=dict(
                 type='Xavier', layer='Conv2d', distribution='uniform')):
         """
@@ -176,6 +184,8 @@ class SingleBiFPN(BaseModule):
         conv_cfg = None
         norm_cfg = dict(type='BN')
         act_cfg = dict(type='ReLU')
+
+
 
         self.out_channels = out_channels
         self.backbone_end_level = len(in_channels)
@@ -296,7 +306,6 @@ class SingleBiFPN(BaseModule):
         else:
             raise NotImplementedError
 
-
         self.fpn_convs = ModuleList()
         for i in range(self.backbone_end_level - 1):
             fpn_conv = ConvModule(
@@ -320,6 +329,12 @@ class SingleBiFPN(BaseModule):
             act_cfg=act_cfg,
             inplace=False)
 
+        self.use_asf = use_asf
+        if self.use_asf:
+            self.ASF = ASF(feature_channels, asf_type=self.use_asf)
+
+        # elif self.asf_type == 'max_mean_asf':
+        #     self.ASF = MAX_MEAN_ASF(feature_channels)
         # self.down_conv = ConvModule(
         #     out_channels,
         #     out_channels,
@@ -444,5 +459,150 @@ class SingleBiFPN(BaseModule):
             for i in range(1, used_backbone_levels):
                 out += output_feats[i]
 
+        if self.use_asf:
+            out = self.ASF(out)
+
         out = self.output_convs(out)
         return out
+
+class ASF(BaseModule):
+    def __init__(self,
+                 in_channels=1024,
+                 asf_type='',
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
+
+        # Saptial Attention branch
+        self.max_spatial_attention = MAX_Spatial_Attention(in_channels)
+        if asf_type == 'min':
+            self.second_spatial_attention = MIN_Spatial_Attention(in_channels)
+        elif asf_type == 'mean':
+            self.second_spatial_attention = MEAN_Spatial_Attention(in_channels)
+        else:
+            raise raiseNotImplementedError("attetntion type must use mean or min ")
+
+    def forward(self, inputs):
+        #MAX_Saptial Attention
+        max_sp_atten_weights = self.max_spatial_attention(inputs)    # [batch, 1, H, W]
+
+        inputs = max_sp_atten_weights * inputs                                     # [batch, 1, H, W] * [batch, 1024, H, W]
+
+        second_sp_atten_weights = self.second_spatial_attention(inputs)    # [batch, 1, H, W]
+
+        out = second_sp_atten_weights * inputs
+
+        return out  #[batch, 1024, H, W]
+
+class MAX_Spatial_Attention(BaseModule):
+    def __init__(self,
+                 in_channels=1024,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
+        norm_cfg = dict(type='BN')
+        act_cfg = dict(type='ReLU')
+
+        self.max_sp_conv = ConvModule(in_channels,in_channels,3,padding=1,stride=1,inplace=False)
+
+        self.conv_relu_conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,act_cfg=act_cfg,),
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=1, inplace=False,),
+            nn.Sigmoid(),
+        )
+
+        self.conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(input_channels, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=in_channels,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,),
+            nn.Sigmoid()
+        )
+
+    def forward(self, inputs):
+        #conv
+        max_sp_atten_feat  = self.max_sp_conv(inputs)                                        # [batch, 1024, H, W]
+        # 维度衰减
+        max_sp_atten_feat = torch.max(max_sp_atten_feat, dim=1, keepdim=True).values         # [batch, 1024, H, W] --> [batch, 1, H, W]
+
+        #生成权重
+        atten_weighted = self.conv_relu_conv_sigmoid(max_sp_atten_feat)      # [batch, 1, H, W]
+        atten_weighted = atten_weighted + inputs                             # [batch, 1, H, W] + [batch, 1024, H, W]
+        atten_weighted = self.conv_sigmoid(atten_weighted)                   # [batch, 1024, H, W] -> [batch, 1, H, W]
+
+        return atten_weighted
+
+class MIN_Spatial_Attention(BaseModule):
+    def __init__(self,
+                 in_channels=1024,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
+        norm_cfg = dict(type='BN')
+        act_cfg = dict(type='ReLU')
+        self.min_sp_conv = ConvModule(in_channels, in_channels, 3, padding=1, stride=1, inplace=False)
+        self.conv_relu_conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,act_cfg=act_cfg,),
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=1, inplace=False,),
+            nn.Sigmoid(),
+        )
+
+        self.conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(input_channels, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=in_channels,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,),
+            nn.Sigmoid()
+        )
+
+    def forward(self, inputs):
+        ##conv
+        min_sp_atten_feat  = self.min_sp_conv(inputs)
+
+        # 维度衰减
+        min_sp_atten_feat = -torch.max(-min_sp_atten_feat, dim=1, keepdim=True).values         # [batch, 1024, H, W] --> [batch, 1, H, W]
+
+        #生成权重
+        atten_weighted = self.conv_relu_conv_sigmoid(min_sp_atten_feat)      # [batch, 1, H, W]
+        atten_weighted = inputs - atten_weighted                             # [batch, 1, H, W] + [batch, 1024, H, W]
+        atten_weighted = self.conv_sigmoid(atten_weighted)                   # [batch, 1024, H, W] -> [batch, 1, H, W]
+
+        return atten_weighted
+
+
+class MEAN_Spatial_Attention(BaseModule):
+    def __init__(self,
+                 in_channels=1024,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
+        norm_cfg = dict(type='BN')
+        act_cfg = dict(type='ReLU')
+        self.mean_sp_conv = ConvModule(in_channels, in_channels, 3, padding=1, stride=1, inplace=False)
+        self.conv_relu_conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,act_cfg=act_cfg,),
+            # nn.Conv2d(1, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=1, out_channels=1, kernel_size=3, padding=1, stride=1, inplace=False,),
+            nn.Sigmoid(),
+        )
+
+        self.conv_sigmoid = nn.Sequential(
+            # nn.Conv2d(input_channels, 1, 3, padding=1, stride=1),
+            ConvModule(in_channels=in_channels,out_channels=1,kernel_size=3,padding=1,stride=1,inplace=False,),
+            nn.Sigmoid()
+        )
+
+    def forward(self, inputs):
+        ##conv
+        mean_sp_atten_feat  = self.mean_sp_conv(inputs)
+
+        # 维度衰减
+        mean_sp_atten_feat = torch.mean(mean_sp_atten_feat, dim=1, keepdim=True)         # [batch, 1024, H, W] --> [batch, 1, H, W]
+
+        #生成权重
+        atten_weighted = self.conv_relu_conv_sigmoid(mean_sp_atten_feat)      # [batch, 1, H, W]
+        atten_weighted = inputs - atten_weighted                             # [batch, 1, H, W] + [batch, 1024, H, W]
+        atten_weighted = self.conv_sigmoid(atten_weighted)                   # [batch, 1024, H, W] -> [batch, 1, H, W]
+
+        return atten_weighted
