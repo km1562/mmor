@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 from mmcv.runner import BaseModule
 
 from mmocr.models.builder import HEADS
