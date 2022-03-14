@@ -28,6 +28,7 @@ class FPNF(BaseModule):
                  in_channels=[256, 512, 1024, 2048],
                  out_channels=256,
                  fusion_type='concat',
+                 use_asf=False,
                  init_cfg=dict(
                      type='Xavier', layer='Conv2d', distribution='uniform')):
         super().__init__(init_cfg=init_cfg)
@@ -83,10 +84,10 @@ class FPNF(BaseModule):
             act_cfg=act_cfg,
             inplace=False)
 
-        self.weight_feature = nn.Parameter(
-            torch.ones(self.backbone_end_level, dtype=torch.float32,
-                       requires_grad=True)
-        )
+        # self.weight_feature = nn.Parameter(
+        #     torch.ones(self.backbone_end_level, dtype=torch.float32,
+        #                requires_grad=True)
+        # )
 
         self.use_asf = use_asf
         if self.use_asf:
@@ -128,15 +129,15 @@ class FPNF(BaseModule):
             laterals[i] = F.interpolate(
                 laterals[i], size=bottom_shape, mode='nearest')
 
-        weights = F.relu(self.weight_feature)
-        norm_weights = weights / (weights.sum() + 0.0001)
-
-        #这种直接覆盖回原来的变量，会有问题吗？
-        for i, lateral in enumerate(laterals):
-            norm_weight = norm_weights[i]
-            lateral = lateral * norm_weight
-            lateral = swish(lateral)
-            laterals[i] = lateral
+        # weights = F.relu(self.weight_feature)
+        # norm_weights = weights / (weights.sum() + 0.0001)
+        #
+        # #这种直接覆盖回原来的变量，会有问题吗？
+        # for i, lateral in enumerate(laterals):
+        #     norm_weight = norm_weights[i]
+        #     lateral = lateral * norm_weight
+        #     lateral = swish(lateral)
+        #     laterals[i] = lateral
 
         if self.fusion_type == 'concat':
             out = torch.cat(laterals, 1)
@@ -147,7 +148,9 @@ class FPNF(BaseModule):
         else:
             raise NotImplementedError
 
-        out = self.ASF(out)
+        if self.use_asf:
+            out = self.ASF(out)
+
         out = self.output_convs(out)
 
         return out
