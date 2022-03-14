@@ -66,10 +66,10 @@ class PANHead(HeadMixin, BaseModule):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
 
-        # self.out_conv = nn.Conv2d(
-        #     in_channels=np.sum(np.array(in_channels)),
-        #     out_channels=out_channels,
-        #     kernel_size=1)
+        self.out_conv = nn.Conv2d(
+            in_channels=np.sum(np.array(in_channels)),
+            out_channels=out_channels,
+            kernel_size=1)
 
         self.use_resasapp = use_resasapp
         if self.use_resasapp:
@@ -94,16 +94,19 @@ class PANHead(HeadMixin, BaseModule):
             outputs = torch.cat(inputs, dim=1)
         else:
             outputs = inputs
-        # outputs = self.out_conv(outputs)
+
         if self.use_resasapp:
             outputs = self.asapp(outputs)
+        else:
+            outputs = self.out_conv(outputs)
 
         return outputs
 
 class Init_ASPP_ADD(BaseModule, nn.Module):
 
     #改进的asapp，跟残差网络一样叠加了一个块
-    def __init__(self, in_channel,depth=256,
+    def __init__(self, in_channel,
+                 depth=256,
                  init_cfg=dict(
                  type='Xavier', layer='Conv2d', distribution='uniform')
                  ):
