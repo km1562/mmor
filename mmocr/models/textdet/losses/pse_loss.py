@@ -23,10 +23,10 @@ class PSELoss(PANLoss):
     """
 
     def __init__(self,
+                 use_log_cosh_dice_loss,
                  alpha=0.7,
                  ohem_ratio=3,
                  reduction='mean',
-                 log_cosh_dice_loss=False,
                  kernel_sample_type='adaptive'):
         super().__init__()
         assert reduction in ['mean', 'sum'
@@ -35,7 +35,7 @@ class PSELoss(PANLoss):
         self.ohem_ratio = ohem_ratio
         self.reduction = reduction
         self.kernel_sample_type = kernel_sample_type
-        self.log_cosh_dice_loss = log_cosh_dice_loss
+        self.use_log_cosh_dice_loss = use_log_cosh_dice_loss
 
     def forward(self, score_maps, downsample_ratio, gt_kernels, gt_mask):
         """Compute PSENet loss.
@@ -75,7 +75,7 @@ class PSELoss(PANLoss):
                                              gt_kernels[0], gt_mask[0])
 
         # log_cosh_dice_loss
-        if self.log_cosh_dice_loss:
+        if self.use_log_cosh_dice_loss:
             loss_texts = self.log_cosh_dice_loss(pred_texts, gt_kernels[0],
                                                 sampled_masks_text)
         else:
@@ -99,7 +99,7 @@ class PSELoss(PANLoss):
         for idx in range(num_kernel):
 
             # log_cosh_dice_loss
-            if self.log_cosh_dice_loss:
+            if self.use_log_cosh_dice_loss:
                 loss_kernels = self.log_cosh_dice_loss(
                 pred_kernels[:, idx, :, :], gt_kernels[1 + idx],
                 sampled_masks_kernel)

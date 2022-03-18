@@ -76,14 +76,14 @@ class PANHead(HeadMixin, BaseModule):
         self.use_resasapp = use_resasapp
         if self.use_resasapp:
             self.asapp = Init_ASPP_ADD(
-                in_channel=np.sum(np.array(in_channels)),
+                in_channels=np.sum(np.array(in_channels)),
                 depth=out_channels,
             )
 
         self.use_coordconv = use_coordconv
         if self.use_coordconv:
             self.asapp = MaskHead(
-                in_channel=np.sum(np.array(in_channels)),
+                in_channels=np.sum(np.array(in_channels)),
                 out_channels=out_channels,
             )
 
@@ -114,7 +114,7 @@ class PANHead(HeadMixin, BaseModule):
 class Init_ASPP_ADD(BaseModule, nn.Module):
 
     #改进的asapp，跟残差网络一样叠加了一个块
-    def __init__(self, in_channel,
+    def __init__(self, in_channels,
                  depth=256,
                  init_cfg=dict(
                  type='Xavier', layer='Conv2d', distribution='uniform')
@@ -122,21 +122,21 @@ class Init_ASPP_ADD(BaseModule, nn.Module):
         super().__init__(init_cfg=init_cfg)
         self.mean = nn.AdaptiveAvgPool2d((1, 1))
         # self.conv = nn.Conv2d(in_channel, depth, 1, 1)
-        self.conv = ConvModule(in_channel, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.conv = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
         # self.atrous_block1 = nn.Conv2d(in_channel, depth, 1, 1)
-        self.atrous_block1 = ConvModule(in_channel, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block1 = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
         # 不同空洞率的卷积
         # self.atrous_block6 = nn.Conv2d(in_channel, depth, 3, 1, padding=6, dilation=6)
-        self.atrous_block6 = ConvModule(in_channel, depth, 3, stride=1, padding=6, dilation=6, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block6 = ConvModule(in_channels, depth, 3, stride=1, padding=6, dilation=6, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
 
         # self.atrous_block12 = nn.Conv2d(in_channel, depth, 3, 1, padding=12, dilation=12)
-        self.atrous_block12 = ConvModule(in_channel, depth, 3, stride=1, padding=12, dilation=12, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block12 = ConvModule(in_channels, depth, 3, stride=1, padding=12, dilation=12, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
 
         # self.atrous_block18 = nn.Conv2d(in_channel, depth, 3, 1, padding=18, dilation=18)
-        self.atrous_block18 = ConvModule(in_channel, depth, 3, stride=1, padding=18, dilation=18, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block18 = ConvModule(in_channels, depth, 3, stride=1, padding=18, dilation=18, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
         self.conv_1x1_output = nn.Conv2d(depth * 5, depth, 1, 1)
 
-        self.conv_origin = ConvModule(in_channel, depth, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.conv_origin = ConvModule(in_channels, depth, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
 
     def forward(self, x):
         oringin = self.conv_origin(x)
