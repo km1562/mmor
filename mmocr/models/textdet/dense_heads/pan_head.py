@@ -36,7 +36,8 @@ class PANHead(HeadMixin, BaseModule):
                      type='PANPostprocessor', text_repr_type='poly'),
                  train_cfg=None,
                  test_cfg=None,
-                 use_resasapp=True,
+                 use_resasapp=False,
+                 use_coordconv=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -77,6 +78,13 @@ class PANHead(HeadMixin, BaseModule):
             self.asapp = Init_ASPP_ADD(
                 in_channel=np.sum(np.array(in_channels)),
                 depth=out_channels,
+            )
+
+        self.use_coordconv = use_coordconv
+        if self.use_coordconv:
+            self.asapp = MaskHead(
+                in_channel=np.sum(np.array(in_channels)),
+                out_channels=out_channels,
             )
 
 
@@ -147,3 +155,31 @@ class Init_ASPP_ADD(BaseModule, nn.Module):
         # 利用1X1卷积融合特征输出
         x = self.conv_1x1_output(x)
         return x
+
+#CoordConv
+class MaskHead(BaseModule, nn.Module):
+    def __init__(self, in_channels,
+                 out_channels,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')
+                 ):
+        super().__init__(init_cfg=init_cfg)
+        out_channels = out_channels
+        in_channels = in_channels + 2
+
+        convs = []
+        convs.append(ConvModule(in_channels, out_channels, 3, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU')))
+        for i in range(3):
+            convs.append(ConvModule(out_channels, out_channels, 3, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU')))
+        self.mask_convs = nn.Sequential(*convs)
+
+    def forward(self, features):
+        x_range = torch.linspace(-1, 1, features.shape[-1], device=features.device)  # W
+        y_range = torch.linspace(-1, 1, features.shape[-2], device=features.device)  # H
+        y, x = torch.meshgrid(y_range, x_range)
+        y = y.expand([features.shape[0], 1, -1, -1])
+        x = x.expand([features.shape[0], 1, -1, -1])
+        coord_feat = torch.cat([x, y], 1)
+        ins_features = torch.cat([features, coord_feat], dim=1)
+        mask_features = self.mask_convs(ins_features)
+        return mask_features

@@ -1,11 +1,10 @@
 _base_ = [
     '../../_base_/default_runtime.py',
     '../../_base_/schedules/schedule_adam_step_600e.py',
-    '../../_base_/det_models/psenet_r50_fpnf.py',
-    '../../_base_/det_datasets/totaltext.py',
+    '../../_base_/det_models/psenet_r50_bifpnf.py',  #bifpn，以后不要这样了，直接在本地覆盖掉
+    '../../_base_/det_datasets/ctw1500.py',
     '../../_base_/det_pipelines/psenet_pipeline.py'
 ]
-
 
 model_poly = dict(
     type='PSENet',
@@ -20,17 +19,16 @@ model_poly = dict(
         norm_eval=True,
         style='caffe'),
     neck=dict(
-        type='FPNF',
+        type='SingleBiFPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
-        fusion_type='concat',
-        use_asf=False,
-    ),
+        fusion_type='concat'),
     bbox_head=dict(
         type='PSEHead',
         in_channels=[256],
         out_channels=7,
-        use_resasapp=False,
+        use_coordconv=True,
+        use_resasapp=True,
         loss=dict(type='PSELoss'),
         postprocessor=dict(type='PSEPostprocessor', text_repr_type='poly')),
     train_cfg=None,
@@ -53,7 +51,6 @@ model_quad = dict(
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
         fusion_type='concat'),
-        use_asf='',
     bbox_head=dict(
         type='PSEHead',
         in_channels=[256],

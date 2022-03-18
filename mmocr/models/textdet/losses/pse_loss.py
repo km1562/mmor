@@ -26,6 +26,7 @@ class PSELoss(PANLoss):
                  alpha=0.7,
                  ohem_ratio=3,
                  reduction='mean',
+                 log_cosh_dice_loss=False,
                  kernel_sample_type='adaptive'):
         super().__init__()
         assert reduction in ['mean', 'sum'
@@ -34,6 +35,7 @@ class PSELoss(PANLoss):
         self.ohem_ratio = ohem_ratio
         self.reduction = reduction
         self.kernel_sample_type = kernel_sample_type
+        self.log_cosh_dice_loss = log_cosh_dice_loss
 
     def forward(self, score_maps, downsample_ratio, gt_kernels, gt_mask):
         """Compute PSENet loss.
@@ -71,7 +73,13 @@ class PSELoss(PANLoss):
         # compute text loss
         sampled_masks_text = self.ohem_batch(pred_texts.detach(),
                                              gt_kernels[0], gt_mask[0])
-        loss_texts = self.dice_loss_with_logits(pred_texts, gt_kernels[0],
+
+        # log_cosh_dice_loss
+        if self.log_cosh_dice_loss:
+            loss_texts = self.log_cosh_dice_loss(pred_texts, gt_kernels[0],
+                                                sampled_masks_text)
+        else:
+            loss_texts = self.dice_loss_with_logits(pred_texts, gt_kernels[0],
                                                 sampled_masks_text)
         losses.append(self.alpha * loss_texts)
 
@@ -89,9 +97,16 @@ class PSELoss(PANLoss):
         assert num_kernel == len(gt_kernels) - 1
         loss_list = []
         for idx in range(num_kernel):
-            loss_kernels = self.dice_loss_with_logits(
+
+            # log_cosh_dice_loss
+            if self.log_cosh_dice_loss:
+                loss_kernels = self.log_cosh_dice_loss(
                 pred_kernels[:, idx, :, :], gt_kernels[1 + idx],
                 sampled_masks_kernel)
+            else:
+                loss_kernels = self.dice_loss_with_logits(
+                    pred_kernels[:, idx, :, :], gt_kernels[1 + idx],
+                    sampled_masks_kernel)
             loss_list.append(loss_kernels)
 
         losses.append((1 - self.alpha) * sum(loss_list) / len(loss_list))

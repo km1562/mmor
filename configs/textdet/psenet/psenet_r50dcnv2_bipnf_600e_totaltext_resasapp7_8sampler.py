@@ -18,19 +18,20 @@ model_poly = dict(
         norm_cfg=dict(type='SyncBN', requires_grad=True),
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
         norm_eval=True,
+        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False),
+        stage_with_dcn=(False, True, True, True),
         style='caffe'),
     neck=dict(
-        type='FPNF',
+        type='SingleBiFPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
-        fusion_type='concat',
-        use_asf=False,
-    ),
+        use_asf='',
+        fusion_type='concat'),
     bbox_head=dict(
         type='PSEHead',
         in_channels=[256],
         out_channels=7,
-        use_resasapp=False,
+        use_resasapp=True,
         loss=dict(type='PSELoss'),
         postprocessor=dict(type='PSEPostprocessor', text_repr_type='poly')),
     train_cfg=None,
@@ -47,13 +48,14 @@ model_quad = dict(
         norm_cfg=dict(type='SyncBN', requires_grad=True),
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
         norm_eval=True,
+        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False),
+        stage_with_dcn=(False, True, True, True),
         style='caffe'),
     neck=dict(
         type='FPNF',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
         fusion_type='concat'),
-        use_asf='',
     bbox_head=dict(
         type='PSEHead',
         in_channels=[256],
@@ -91,3 +93,4 @@ data = dict(
         pipeline=test_pipeline_ctw1500))
 
 evaluation = dict(interval=10, metric='hmean-iou')
+

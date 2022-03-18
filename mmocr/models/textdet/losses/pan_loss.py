@@ -268,7 +268,12 @@ class PANLoss(nn.Module):
         b = torch.sum(pred * pred, 1) + smooth
         c = torch.sum(target * target, 1) + smooth
         d = (2 * a) / (b + c)
+
         return 1 - d
+
+    def log_cosh_dice_loss(self, pred, target, mask):
+        x = self.dice_loss_with_logits(pred, target, mask)
+        return torch.log((torch.exp(x) + torhc.exp(-x)) / 2.0)
 
     def ohem_img(self, text_score, gt_text, gt_mask):
         """Sample the top-k maximal negative samples and all positive samples.
