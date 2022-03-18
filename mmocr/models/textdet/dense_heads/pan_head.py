@@ -82,9 +82,9 @@ class PANHead(HeadMixin, BaseModule):
 
         self.use_coordconv = use_coordconv
         if self.use_coordconv:
-            self.asapp = MaskHead(
+            self.coord_conv = MaskHead(
                 in_channels=np.sum(np.array(in_channels)),
-                out_channels=out_channels,
+                out_channels=np.sum(np.array(in_channels)),
             )
 
 
@@ -104,10 +104,11 @@ class PANHead(HeadMixin, BaseModule):
         else:
             outputs = inputs
 
+        if self.use_coordconv:
+            outputs = self.coord_conv(outputs)
+
         if self.use_resasapp:
             outputs = self.asapp(outputs)
-        else:
-            outputs = self.out_conv(outputs)
 
         return outputs
 
