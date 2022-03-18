@@ -29,7 +29,7 @@ model_poly = dict(
         out_channels=7,
         use_coordconv=True,
         use_resasapp=True,
-        loss=dict(type='PSELoss'),
+        loss=dict(type='PSELoss', use_log_cosh_dice_loss=False,),
         postprocessor=dict(type='PSEPostprocessor', text_repr_type='poly')),
     train_cfg=None,
     test_cfg=None)
