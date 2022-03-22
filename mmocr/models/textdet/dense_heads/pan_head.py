@@ -38,6 +38,7 @@ class PANHead(HeadMixin, BaseModule):
                  test_cfg=None,
                  use_resasapp=False,
                  use_coordconv=False,
+                 use_contextblokc=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -87,6 +88,14 @@ class PANHead(HeadMixin, BaseModule):
                 out_channels=np.sum(np.array(in_channels)),
             )
 
+        self.use_contextblokc = use_contextblokc
+        if self.use_contextblokc:
+            self.contextblokc = ContextBlock(
+                inplanes=np.sum(np.array(in_channels)),
+                ratio=1. / 16.,
+                pooling_type='att',
+            )
+
 
     def forward(self, inputs):
         r"""
@@ -106,6 +115,9 @@ class PANHead(HeadMixin, BaseModule):
 
         if self.use_coordconv:
             outputs = self.coord_conv(outputs)
+
+        if self.use_contextblokc:
+            outputs = self.contextblokc(outputs)
 
         if self.use_resasapp:
             outputs = self.asapp(outputs)
@@ -140,6 +152,7 @@ class Init_ASPP_ADD(BaseModule, nn.Module):
         self.conv_origin = ConvModule(in_channels, depth, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
 
     def forward(self, x):
+        # print("use asapp")
         oringin = self.conv_origin(x)
         size = x.shape[2:]
         # 池化分支
@@ -184,3 +197,91 @@ class MaskHead(BaseModule, nn.Module):
         ins_features = torch.cat([features, coord_feat], dim=1)
         mask_features = self.mask_convs(ins_features)
         return mask_features
+
+
+class ContextBlock(BaseModule, nn.Module):
+    def __init__(self,
+                 inplanes,
+                 ratio,pooling_type='att',
+                 fusion_types=('channel_add', ),
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')
+                 ):
+        super().__init__(init_cfg=init_cfg)
+        valid_fusion_types = ['channel_add', 'channel_mul']
+
+        assert pooling_type in ['avg', 'att']
+        assert isinstance(fusion_types, (list, tuple))
+        assert all([f in valid_fusion_types for f in fusion_types])
+        assert len(fusion_types) > 0, 'at least one fusion should be used'
+
+        self.inplanes = inplanes
+        self.ratio = ratio
+        self.planes = int(inplanes * ratio)
+        self.pooling_type = pooling_type
+        self.fusion_types = fusion_types
+
+        if pooling_type == 'att':
+            self.conv_mask = nn.Conv2d(inplanes, 1, kernel_size=1)
+            # self.conv_mask = ConvModule(inplanes, 1, kernel_size=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+            self.softmax = nn.Softmax(dim=2)
+        else:
+            self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        if 'channel_add' in fusion_types:
+            self.channel_add_conv = nn.Sequential(
+                nn.Conv2d(self.inplanes, self.planes, kernel_size=1),
+                # ConvModule(self.inplanes, self.planes, kernel_size=1,norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU')),
+                nn.LayerNorm([self.planes, 1, 1]),
+                nn.ReLU(inplace=True),  # yapf: disable
+                nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
+        else:
+            self.channel_add_conv = None
+        if 'channel_mul' in fusion_types:
+            self.channel_mul_conv = nn.Sequential(
+                nn.Conv2d(self.inplanes, self.planes, kernel_size=1),
+                nn.LayerNorm([self.planes, 1, 1]),
+                nn.ReLU(inplace=True),  # yapf: disable
+                nn.Conv2d(self.planes, self.inplanes, kernel_size=1))
+        else:
+            self.channel_mul_conv = None
+
+
+    def spatial_pool(self, x):
+        batch, channel, height, width = x.size()
+        if self.pooling_type == 'att':
+            input_x = x
+            # [N, C, H * W]
+            input_x = input_x.view(batch, channel, height * width)
+            # [N, 1, C, H * W]
+            input_x = input_x.unsqueeze(1)
+            # [N, 1, H, W]
+            context_mask = self.conv_mask(x)
+            # [N, 1, H * W]
+            context_mask = context_mask.view(batch, 1, height * width)
+            # [N, 1, H * W]
+            context_mask = self.softmax(context_mask)
+            # [N, 1, H * W, 1]
+            context_mask = context_mask.unsqueeze(-1)
+            # [N, 1, C, 1]
+            context = torch.matmul(input_x, context_mask)
+            # [N, C, 1, 1]
+            context = context.view(batch, channel, 1, 1)
+        else:
+            # [N, C, 1, 1]
+            context = self.avg_pool(x)
+        return context
+
+    def forward(self, x):
+        # [N, C, 1, 1]
+        # pirnt("use contextblock")
+        context = self.spatial_pool(x)
+        out = x
+        if self.channel_mul_conv is not None:
+            # [N, C, 1, 1]
+            channel_mul_term = torch.sigmoid(self.channel_mul_conv(context))
+            out = out * channel_mul_term
+        if self.channel_add_conv is not None:
+            # [N, C, 1, 1]
+            channel_add_term = self.channel_add_conv(context)
+            out = out + channel_add_term
+        return out
