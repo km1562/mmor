@@ -11,6 +11,7 @@ from mmocr.models.builder import HEADS
 from mmocr.utils import check_argument
 from .head_mixin import HeadMixin
 from mmcv.cnn import ConvModule
+from .CBAM import CBAM
 
 @HEADS.register_module()
 class PANHead(HeadMixin, BaseModule):
@@ -39,6 +40,8 @@ class PANHead(HeadMixin, BaseModule):
                  use_resasapp=False,
                  use_coordconv=False,
                  use_contextblokc=False,
+                 use_cbam=False,
+                 use_non_local_after=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -84,18 +87,27 @@ class PANHead(HeadMixin, BaseModule):
         self.use_coordconv = use_coordconv
         if self.use_coordconv:
             self.coord_conv = MaskHead(
-                in_channels=np.sum(np.array(in_channels)),
-                out_channels=np.sum(np.array(in_channels)),
+                in_channels=out_channels,
+                out_channels=out_channels,
             )
 
         self.use_contextblokc = use_contextblokc
         if self.use_contextblokc:
             self.contextblokc = ContextBlock(
-                inplanes=np.sum(np.array(in_channels)),
-                ratio=1. / 16.,
+                inplanes=out_channels,
+                ratio=1,
                 pooling_type='att',
             )
 
+        self.use_CBAM = use_cbam
+        if self.use_CBAM:
+            self.CBAM = CBAM(
+                inchannels=out_channels,
+            )
+
+        self.use_non_local_after = use_non_local_after
+        if self.use_non_local_after:
+            self.non_loca_after = NonLocal(channel=out_channels)
 
     def forward(self, inputs):
         r"""
@@ -113,15 +125,20 @@ class PANHead(HeadMixin, BaseModule):
         else:
             outputs = inputs
 
-        if self.use_coordconv:
-            outputs = self.coord_conv(outputs)
+        if self.use_resasapp:
+            outputs = self.asapp(outputs)
 
         if self.use_contextblokc:
             outputs = self.contextblokc(outputs)
 
-        if self.use_resasapp:
-            outputs = self.asapp(outputs)
+        if self.use_CBAM:
+            outputs = self.CBAM(outputs)
 
+        if self.use_coordconv:
+            outputs = self.coord_conv(outputs)
+
+        if self.use_non_local_after:
+            outputs = self.non_loca_after(outputs)
         return outputs
 
 class Init_ASPP_ADD(BaseModule, nn.Module):
@@ -284,4 +301,37 @@ class ContextBlock(BaseModule, nn.Module):
             # [N, C, 1, 1]
             channel_add_term = self.channel_add_conv(context)
             out = out + channel_add_term
+        return out
+
+
+class NonLocal(nn.Module):
+    def __init__(self, channel):
+        super(NonLocalBlock, self).__init__()
+        self.inter_channel = channel // 2
+        self.conv_phi = nn.Conv2d(channel, self.inter_channel, 1, 1,0, False)
+        self.conv_theta = nn.Conv2d(channel, self.inter_channel, 1, 1,0, False)
+        self.conv_g = nn.Conv2d(channel, self.inter_channel, 1, 1, 0, False)
+        self.softmax = nn.Softmax(dim=1)
+        self.conv_mask = nn.Conv2d(self.inter_channel, channel, 1, 1, 0, False)
+
+    def forward(self, x):
+        # [N, C, H , W]
+        b, c, h, w = x.size()
+        # 获取phi特征，维度为[N, C/2, H * W]，注意是要保留batch和通道维度的，是在HW上进行的
+        x_phi = self.conv_phi(x).view(b, c, -1)
+        # 获取theta特征，维度为[N, H * W, C/2]
+        x_theta = self.conv_theta(x).view(b, c, -1).permute(0, 2, 1).contiguous()
+        # 获取g特征，维度为[N, H * W, C/2]
+        x_g = self.conv_g(x).view(b, c, -1).permute(0, 2, 1).contiguous()
+        # 对phi和theta进行矩阵乘，[N, H * W, H * W]
+        mul_theta_phi = torch.matmul(x_theta, x_phi)
+        # softmax拉到0~1之间
+        mul_theta_phi = self.softmax(mul_theta_phi)
+        # 与g特征进行矩阵乘运算，[N, H * W, C/2]
+        mul_theta_phi_g = torch.matmul(mul_theta_phi, x_g)
+        # [N, C/2, H, W]
+        mul_theta_phi_g = mul_theta_phi_g.permute(0, 2, 1).contiguous().view(b, self.inter_channel, h, w)
+        # 1X1卷积扩充通道数
+        mask = self.conv_mask(mul_theta_phi_g)
+        out = mask + x # 残差连接
         return out
