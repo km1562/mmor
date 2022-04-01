@@ -13,6 +13,8 @@ from .head_mixin import HeadMixin
 from mmcv.cnn import ConvModule
 from .CBAM import CBAM
 
+from torch.nn import Softmax
+
 @HEADS.register_module()
 class PANHead(HeadMixin, BaseModule):
     """The class for PANet head.
@@ -42,6 +44,7 @@ class PANHead(HeadMixin, BaseModule):
                  use_contextblokc=False,
                  use_cbam=False,
                  use_non_local_after=False,
+                 use_criss_cro_att_after=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -109,6 +112,10 @@ class PANHead(HeadMixin, BaseModule):
         if self.use_non_local_after:
             self.non_loca_after = NonLocal(channel=out_channels)
 
+        self.use_criss_cro_att_after = use_criss_cro_att_after
+        if self.use_criss_cro_att_after:
+            self.criss_cro_att_after = CrissCrossAttention(in_dim=out_channels)
+
     def forward(self, inputs):
         r"""
         Args:
@@ -139,6 +146,9 @@ class PANHead(HeadMixin, BaseModule):
 
         if self.use_non_local_after:
             outputs = self.non_loca_after(outputs)
+
+        if self.use_criss_cro_att_after:
+            outputs = self.criss_cro_att_after(outputs)
         return outputs
 
 class Init_ASPP_ADD(BaseModule, nn.Module):
@@ -304,25 +314,28 @@ class ContextBlock(BaseModule, nn.Module):
         return out
 
 
-class NonLocal(nn.Module):
-    def __init__(self, channel):
-        super(NonLocalBlock, self).__init__()
+class NonLocal(BaseModule, nn.Module):
+    def __init__(self, channel,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')
+                 ):
+        super().__init__(init_cfg=init_cfg)
         self.inter_channel = channel // 2
-        self.conv_phi = nn.Conv2d(channel, self.inter_channel, 1, 1,0, False)
-        self.conv_theta = nn.Conv2d(channel, self.inter_channel, 1, 1,0, False)
-        self.conv_g = nn.Conv2d(channel, self.inter_channel, 1, 1, 0, False)
+        self.conv_phi = nn.Conv2d(channel, self.inter_channel, 1, 1)
+        self.conv_theta = nn.Conv2d(channel, self.inter_channel, 1, 1)
+        self.conv_g = nn.Conv2d(channel, self.inter_channel, 1, 1, )
         self.softmax = nn.Softmax(dim=1)
-        self.conv_mask = nn.Conv2d(self.inter_channel, channel, 1, 1, 0, False)
+        self.conv_mask = nn.Conv2d(self.inter_channel, channel, 1, 1, )
 
     def forward(self, x):
         # [N, C, H , W]
         b, c, h, w = x.size()
         # 获取phi特征，维度为[N, C/2, H * W]，注意是要保留batch和通道维度的，是在HW上进行的
-        x_phi = self.conv_phi(x).view(b, c, -1)
+        x_phi = self.conv_phi(x).view(b, c//2, -1)
         # 获取theta特征，维度为[N, H * W, C/2]
-        x_theta = self.conv_theta(x).view(b, c, -1).permute(0, 2, 1).contiguous()
+        x_theta = self.conv_theta(x).view(b, c//2, -1).permute(0, 2, 1).contiguous()
         # 获取g特征，维度为[N, H * W, C/2]
-        x_g = self.conv_g(x).view(b, c, -1).permute(0, 2, 1).contiguous()
+        x_g = self.conv_g(x).view(b, c//2, -1).permute(0, 2, 1).contiguous()
         # 对phi和theta进行矩阵乘，[N, H * W, H * W]
         mul_theta_phi = torch.matmul(x_theta, x_phi)
         # softmax拉到0~1之间
@@ -335,3 +348,47 @@ class NonLocal(nn.Module):
         mask = self.conv_mask(mul_theta_phi_g)
         out = mask + x # 残差连接
         return out
+
+
+def INF(B, H, W):
+    return -torch.diag(torch.tensor(float("inf")).cuda().repeat(H), 0).unsqueeze(0).repeat(B * W, 1, 1)
+
+
+class CrissCrossAttention(BaseModule, nn.Module):
+    """ Criss-Cross Attention Module"""
+    def __init__(self, in_dim,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')
+                 ):
+        super().__init__(init_cfg=init_cfg)
+        self.query_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim//2, kernel_size=1)
+        self.key_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim//2, kernel_size=1)
+        self.value_conv = nn.Conv2d(in_channels=in_dim, out_channels=in_dim, kernel_size=1)
+        self.softmax = Softmax(dim=3)
+        self.INF = INF
+        self.gamma = nn.Parameter(torch.zeros(1))
+
+
+    def forward(self, x):
+        m_batchsize, _, height, width = x.size()
+        proj_query = self.query_conv(x)
+        proj_query_H = proj_query.permute(0,3,1,2).contiguous().view(m_batchsize*width,-1,height).permute(0, 2, 1)
+        proj_query_W = proj_query.permute(0,2,1,3).contiguous().view(m_batchsize*height,-1,width).permute(0, 2, 1)
+        proj_key = self.key_conv(x)
+        proj_key_H = proj_key.permute(0,3,1,2).contiguous().view(m_batchsize*width,-1,height)
+        proj_key_W = proj_key.permute(0,2,1,3).contiguous().view(m_batchsize*height,-1,width)
+        proj_value = self.value_conv(x)
+        proj_value_H = proj_value.permute(0,3,1,2).contiguous().view(m_batchsize*width,-1,height)
+        proj_value_W = proj_value.permute(0,2,1,3).contiguous().view(m_batchsize*height,-1,width)
+        energy_H = (torch.bmm(proj_query_H, proj_key_H)+self.INF(m_batchsize, height, width)).view(m_batchsize,width,height,height).permute(0,2,1,3)
+        energy_W = torch.bmm(proj_query_W, proj_key_W).view(m_batchsize,height,width,width)
+        concate = self.softmax(torch.cat([energy_H, energy_W], 3))
+
+        att_H = concate[:,:,:,0:height].permute(0,2,1,3).contiguous().view(m_batchsize*width,height,height)
+        #print(concate)
+        #print(att_H)
+        att_W = concate[:,:,:,height:height+width].contiguous().view(m_batchsize*height,width,width)
+        out_H = torch.bmm(proj_value_H, att_H.permute(0, 2, 1)).view(m_batchsize,width,-1,height).permute(0,2,3,1)
+        out_W = torch.bmm(proj_value_W, att_W.permute(0, 2, 1)).view(m_batchsize,height,-1,width).permute(0,2,1,3)
+        #print(out_H.size(),out_W.size())
+        return self.gamma*(out_H + out_W) + x
