@@ -134,6 +134,8 @@ class PANHead(HeadMixin, BaseModule):
 
         if self.use_resasapp:
             outputs = self.asapp(outputs)
+        else:
+            outputs = self.out_conv(inputs)
 
         if self.use_contextblokc:
             outputs = self.contextblokc(outputs)

@@ -23,7 +23,7 @@ class PSELoss(PANLoss):
     """
 
     def __init__(self,
-                 use_log_cosh_dice_loss,
+                 use_log_cosh_dice_loss=False,
                  alpha=0.7,
                  ohem_ratio=3,
                  reduction='mean',
