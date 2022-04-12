@@ -303,9 +303,9 @@ class SingleBiFPN(BaseModule):
         self.fusion_type = fusion_type
 
         if self.fusion_type == 'concat':
-            feature_channels = 1024
+            feature_channels = out_channels * 4
         elif self.fusion_type == 'add':
-            feature_channels = 256
+            feature_channels = out_channels
         else:
             raise NotImplementedError
 

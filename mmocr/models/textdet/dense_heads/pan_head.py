@@ -7,6 +7,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 from mmcv.runner import BaseModule
 
+import timm
 from mmocr.models.builder import HEADS
 from mmocr.utils import check_argument
 from .head_mixin import HeadMixin
@@ -45,6 +46,7 @@ class PANHead(HeadMixin, BaseModule):
                  use_cbam=False,
                  use_non_local_after=False,
                  use_criss_cro_att_after=False,
+                 use_resasapp_add_255=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -80,11 +82,20 @@ class PANHead(HeadMixin, BaseModule):
             out_channels=out_channels,
             kernel_size=1)
 
+        # self.out_conv = ConvModule(np.sum(np.array(in_channels)), out_channels, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+
         self.use_resasapp = use_resasapp
         if self.use_resasapp:
             self.asapp = Init_ASPP_ADD(
                 in_channels=np.sum(np.array(in_channels)),
                 depth=out_channels,
+            )
+
+        self.use_resasapp_add_255 = use_resasapp_add_255
+        if self.use_resasapp_add_255:
+            self.asapp_add_255 = Init_ASPP_ADD(
+                in_channels=np.sum(np.array(in_channels)),
+                depth=np.sum(np.array(in_channels)),
             )
 
         self.use_coordconv = use_coordconv
@@ -132,6 +143,10 @@ class PANHead(HeadMixin, BaseModule):
         else:
             outputs = inputs
 
+        if self.use_resasapp_add_255:
+            outputs = self.asapp_add_255(outputs)
+
+
         if self.use_resasapp:
             outputs = self.asapp(outputs)
         else:
@@ -164,21 +179,21 @@ class Init_ASPP_ADD(BaseModule, nn.Module):
         super().__init__(init_cfg=init_cfg)
         self.mean = nn.AdaptiveAvgPool2d((1, 1))
         # self.conv = nn.Conv2d(in_channel, depth, 1, 1)
-        self.conv = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.conv = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
         # self.atrous_block1 = nn.Conv2d(in_channel, depth, 1, 1)
-        self.atrous_block1 = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block1 = ConvModule(in_channels, depth, 1, stride=1, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
         # 不同空洞率的卷积
         # self.atrous_block6 = nn.Conv2d(in_channel, depth, 3, 1, padding=6, dilation=6)
-        self.atrous_block6 = ConvModule(in_channels, depth, 3, stride=1, padding=6, dilation=6, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block6 = ConvModule(in_channels, depth, 3, stride=1, padding=6, dilation=6, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
 
         # self.atrous_block12 = nn.Conv2d(in_channel, depth, 3, 1, padding=12, dilation=12)
-        self.atrous_block12 = ConvModule(in_channels, depth, 3, stride=1, padding=12, dilation=12, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block12 = ConvModule(in_channels, depth, 3, stride=1, padding=12, dilation=12, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
 
         # self.atrous_block18 = nn.Conv2d(in_channel, depth, 3, 1, padding=18, dilation=18)
-        self.atrous_block18 = ConvModule(in_channels, depth, 3, stride=1, padding=18, dilation=18, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.atrous_block18 = ConvModule(in_channels, depth, 3, stride=1, padding=18, dilation=18, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
         self.conv_1x1_output = nn.Conv2d(depth * 5, depth, 1, 1)
 
-        self.conv_origin = ConvModule(in_channels, depth, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
+        self.conv_origin = ConvModule(in_channels, depth, 3, stride=1, padding=1, norm_cfg=dict(type='GN',num_groups=32), act_cfg=dict(type='LeakyReLU'))
 
     def forward(self, x):
         # print("use asapp")
@@ -394,3 +409,17 @@ class CrissCrossAttention(BaseModule, nn.Module):
         out_W = torch.bmm(proj_value_W, att_W.permute(0, 2, 1)).view(m_batchsize,height,-1,width).permute(0,2,1,3)
         #print(out_H.size(),out_W.size())
         return self.gamma*(out_H + out_W) + x
+
+
+class VIT(nn.Module):
+    def __init__(self,
+                 init_cfg,
+                 model_name,
+                 pretrained,
+                 ):
+        super().__init__(init_cfg=init_cfg)
+        m = timm.create_model(model_name, pretraine=True)
+
+    def forward(self,x):
+        feature = self.m(x)
+        return feature
