@@ -1,11 +1,10 @@
 _base_ = [
-    '../../_base_/default_runtime.py',
-    '../../_base_/schedules/schedule_adam_step_600e.py',
-    '../../_base_/det_models/psenet_r50_fpnf.py',
-    '../../_base_/det_datasets/totaltext.py',
-    '../../_base_/det_pipelines/psenet_pipeline.py'
+    '../../../_base_/default_runtime.py',
+    '../../../_base_/schedules/schedule_adam_step_600e.py',
+    '../../../_base_/det_models/psenet_r50_bifpnf.py',  #bifpn，以后不要这样了，直接在本地覆盖掉
+    '../../../_base_/det_datasets/syntext.py',
+    '../../../_base_/det_pipelines/psenet_pipeline.py'
 ]
-
 
 model_poly = dict(
     type='PSENet',
@@ -23,15 +22,17 @@ model_poly = dict(
         type='SingleBiFPN',
         in_channels=[256, 512, 1024, 2048],
         out_channels=256,
-        use_asf='',
         fusion_type='concat'),
     bbox_head=dict(
         type='PSEHead',
         in_channels=[256],
         out_channels=7,
-        use_resasapp=True,
         use_coordconv=True,
-        loss=dict(type='PSELoss'),
+        use_resasapp=True,
+        use_contextblokc=False,
+        use_cbam=False,
+        use_non_local_after=False,
+        loss=dict(type='PSELoss', use_log_cosh_dice_loss=False,),
         postprocessor=dict(type='PSEPostprocessor', text_repr_type='poly')),
     train_cfg=None,
     test_cfg=None)
@@ -47,8 +48,6 @@ model_quad = dict(
         norm_cfg=dict(type='SyncBN', requires_grad=True),
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50'),
         norm_eval=True,
-        dcn=dict(type='DCNv2', deform_groups=1, fallback_on_stride=False),
-        stage_with_dcn=(False, True, True, True),
         style='caffe'),
     neck=dict(
         type='FPNF',
@@ -64,7 +63,7 @@ model_quad = dict(
     train_cfg=None,
     test_cfg=None)
 
-
+total_epochs = 4
 model = model_poly
 
 train_list = {{_base_.train_list}}
@@ -74,8 +73,10 @@ train_pipeline = {{_base_.train_pipeline}}
 test_pipeline_ctw1500 = {{_base_.test_pipeline_ctw1500}}
 
 data = dict(
-    samples_per_gpu=6,
-    workers_per_gpu=2,
+    samples_per_gpu=12,
+    # samples_per_gpu=12,
+    workers_per_gpu=12,
+    # num_workers=4,
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
     train=dict(
@@ -91,5 +92,11 @@ data = dict(
         datasets=test_list,
         pipeline=test_pipeline_ctw1500))
 
+checkpoint_config = dict(interval=1)
 evaluation = dict(interval=10, metric='hmean-iou')
 
+# optimizer
+optimizer = dict(type='Adam', lr=1e-4)
+optimizer_config = dict(grad_clip=None)
+# learning policy
+lr_config = dict(policy='step', step=[2, 3])

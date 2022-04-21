@@ -349,7 +349,7 @@ class SingleBiFPN(BaseModule):
         #     act_cfg=act_cfg,
         #     inplace=False)
 
-
+    @auto_fp16()
     def forward(self, feats):
         """
         Args:
@@ -460,7 +460,7 @@ class SingleBiFPN(BaseModule):
         elif self.fusion_type == 'add':
             out = output_feats[0]
             for i in range(1, used_backbone_levels):
-                out += output_feats[i]
+                out = out + output_feats[i]
 
         if self.use_asf:
             out = self.ASF(out)

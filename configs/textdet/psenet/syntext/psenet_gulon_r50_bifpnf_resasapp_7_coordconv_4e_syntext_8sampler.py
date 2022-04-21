@@ -23,7 +23,7 @@ model_poly = dict(
         type='PSEHead',
         in_channels=[256],
         out_channels=7,
-        use_coordconv=False,
+        use_coordconv=True,
         use_resasapp=True,
         use_contextblokc=False,
         use_cbam=False,
@@ -69,9 +69,9 @@ train_pipeline = {{_base_.train_pipeline}}
 test_pipeline_ctw1500 = {{_base_.test_pipeline_ctw1500}}
 
 data = dict(
-    samples_per_gpu=8,
+    samples_per_gpu=4,
     # samples_per_gpu=2,
-    workers_per_gpu=2,
+    workers_per_gpu=4,
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
     train=dict(
@@ -87,4 +87,4 @@ data = dict(
         datasets=test_list,
         pipeline=test_pipeline_ctw1500))
 
-# evaluation = dict(interval=10, metric='hmean-iou')
+evaluation = dict(interval=10, metric='hmean-iou')

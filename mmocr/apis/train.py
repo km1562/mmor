@@ -17,6 +17,7 @@ from mmocr.apis.utils import (disable_text_recog_aug_test,
                               replace_image_to_tensor)
 from mmocr.utils import get_root_logger
 
+from apex import amp
 
 def train_detector(model,
                    dataset,
@@ -59,7 +60,8 @@ def train_detector(model,
 
     # put model on gpus
     if distributed:
-        find_unused_parameters = cfg.get('find_unused_parameters', False)
+        # find_unused_parameters = cfg.get('find_unused_parameters', False)
+        find_unused_parameters = cfg.get('find_unused_parameters', True)
         # Sets the `find_unused_parameters` parameter in
         # torch.nn.parallel.DistributedDataParallel
         model = MMDistributedDataParallel(
@@ -102,6 +104,7 @@ def train_detector(model,
 
     # fp16 setting
     fp16_cfg = cfg.get('fp16', None)
+    print(fp16_cfg)
     if fp16_cfg is not None:
         optimizer_config = Fp16OptimizerHook(
             **cfg.optimizer_config, **fp16_cfg, distributed=distributed)
@@ -109,6 +112,11 @@ def train_detector(model,
         optimizer_config = OptimizerHook(**cfg.optimizer_config)
     else:
         optimizer_config = cfg.optimizer_config
+
+    #apex
+    # model, optimizer = amp.initialize(model, optimizer, opt_level="O1")  # 这里是“欧一”，不是“零一”
+    # with amp.scale_loss(loss, optimizer) as scaled_loss:
+    #     scaled_loss.backward()
 
     # register hooks
     runner.register_training_hooks(
