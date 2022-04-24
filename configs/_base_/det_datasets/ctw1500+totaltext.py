@@ -9,8 +9,8 @@ train_1 = dict(
 
 test_1 = dict(
     type=dataset_type,
-    ann_file=f'{data_root}/instances_test.json',
-    img_prefix=f'{data_root}/imgs',
+    ann_file=f'{data_root_1}/instances_test.json',
+    img_prefix=f'{data_root_1}/imgs',
     pipeline=None)
 
 data_root_2 = 'data/totaltext'
@@ -19,7 +19,7 @@ train_2 = dict(
     type=dataset_type,
     ann_file=f'{data_root_2}/instances_training.json',
     img_prefix=f'{data_root_2}/imgs',
-    pipeline=Nonedata_root_2)
+    pipeline=None)
 
 test_2 = dict(
     type=dataset_type,
@@ -29,5 +29,5 @@ test_2 = dict(
 
 train_list = [train_1, train_2]
 
-test_list = [test_1, test_2]
+test_list = [test_1]
 

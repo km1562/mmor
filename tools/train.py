@@ -54,6 +54,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
     parser.add_argument(
         '--deterministic',
+        default=True,
         action='store_true',
         help='Whether to set deterministic options for CUDNN backend.')
     parser.add_argument(

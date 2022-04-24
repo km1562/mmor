@@ -78,10 +78,7 @@ class PANHead(HeadMixin, BaseModule):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
 
-        self.out_conv = nn.Conv2d(
-            in_channels=np.sum(np.array(in_channels)),
-            out_channels=out_channels,
-            kernel_size=1)
+
 
         # self.out_conv = ConvModule(np.sum(np.array(in_channels)), out_channels, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
 
@@ -91,6 +88,11 @@ class PANHead(HeadMixin, BaseModule):
                 in_channels=np.sum(np.array(in_channels)),
                 depth=out_channels,
             )
+        else:
+            self.out_conv = nn.Conv2d(
+                in_channels=np.sum(np.array(in_channels)),
+                out_channels=out_channels,
+                kernel_size=1)
 
         self.use_resasapp_add_255 = use_resasapp_add_255
         if self.use_resasapp_add_255:
@@ -250,7 +252,8 @@ class Init_ASPP_ADD_GN(BaseModule, nn.Module):
         # 池化分支
         image_features = self.mean(x)
         image_features = self.conv(image_features)
-        image_features = F.upsample(image_features, size=size, mode='bilinear')
+        # image_features = F.upsample(image_features, size=size, mode='bilinear')
+        image_features = F.interpolate(image_features, size=size, mode='bilinear')
         # 不同空洞率的卷积
         atrous_block1 = self.atrous_block1(x) + oringin
         atrous_block6 = self.atrous_block6(x) + oringin
