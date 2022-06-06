@@ -1,4 +1,4 @@
-# optimizer
+00# optimizer
 optimizer = dict(type='Adam', lr=1e-4)
 optimizer_config = dict(grad_clip=None)
 # learning policy

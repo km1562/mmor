@@ -478,7 +478,7 @@ class MMOCR:
             if export:
                 mmcv.dump(res, export, indent=4)
             if output or self.args.imshow:
-                res_img = model.show_result(arr, res, out_file=output)
+                res_img = model.show_result(arr, res, out_file=output, thickness=2)
                 if self.args.imshow:
                     mmcv.imshow(res_img, 'inference results')
             if self.args.print_result:

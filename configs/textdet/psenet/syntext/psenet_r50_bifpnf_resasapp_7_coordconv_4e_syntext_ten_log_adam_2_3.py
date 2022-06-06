@@ -99,4 +99,4 @@ evaluation = dict(interval=10, metric='hmean-iou')
 optimizer = dict(type='Adam', lr=1e-4)
 optimizer_config = dict(grad_clip=None)
 # learning policy
-lr_config = dict(policy='step', step=[2, 3])
+lr_config = dict(policy='step', step=[1, 2])

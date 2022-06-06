@@ -55,8 +55,10 @@ class PSEPostprocessor(BasePostprocessor):
         preds = torch.sigmoid(preds)  # text confidence
 
         score = preds[0, :, :]
-        masks = preds > self.min_kernel_confidence
+        masks = preds > self.min_kernel_confidence  #
+
         text_mask = masks[0, :, :]
+
         kernel_masks = masks[0:, :, :] * text_mask
 
         score = score.data.cpu().numpy().astype(np.float32)

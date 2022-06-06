@@ -184,6 +184,8 @@ def model_inference(model,
     with torch.no_grad():
         results = model(return_loss=False, rescale=True, **data)
 
+
+    #TODO 有loss，未必不行！
     if not is_batch:
         if not return_data:
             return results[0]

@@ -39,7 +39,8 @@ class PANLoss(nn.Module):
                  delta_discrimination=3,
                  ohem_ratio=3,
                  reduction='mean',
-                 speedup_bbox_thr=-1):
+                 speedup_bbox_thr=-1,
+                 ):
         super().__init__()
         assert reduction in ['mean', 'sum'], "reduction must in ['mean','sum']"
         self.alpha = alpha
@@ -254,9 +255,13 @@ class PANLoss(nn.Module):
 
         smooth = 0.001
 
+        #TODU
         pred = torch.sigmoid(pred)
-        target[target <= 0.5] = 0
-        target[target > 0.5] = 1
+        target[target <= self.thres_hold] = 0
+        target[target > self.thres_hold] = 1
+        with open("/home/wengkangming/map_file/mmocr/thre.txt", "a+") as f:
+            f.write("\n" + "self.thres_hold" + str(self.thres_hold))
+            
         pred = pred.contiguous().view(pred.size()[0], -1)
         target = target.contiguous().view(target.size()[0], -1)
         mask = mask.contiguous().view(mask.size()[0], -1)
@@ -312,12 +317,10 @@ class PANLoss(nn.Module):
 
     def ohem_batch(self, text_scores, gt_texts, gt_mask):
         """OHEM sampling for a batch of imgs.
-
         Args:
             text_scores (Tensor): The text scores of size :math:`(H, W)`.
             gt_texts (Tensor): The gt text masks of size :math:`(H, W)`.
             gt_mask (Tensor): The gt effective mask of size :math:`(H, W)`.
-
         Returns:
             Tensor: The sampled mask of size :math:`(H, W)`.
         """

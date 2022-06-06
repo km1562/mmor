@@ -54,7 +54,7 @@ def parse_args():
     parser.add_argument('--seed', type=int, default=None, help='Random seed.')
     parser.add_argument(
         '--deterministic',
-        default=True,
+        # default=True,
         action='store_true',
         help='Whether to set deterministic options for CUDNN backend.')
     parser.add_argument(
@@ -184,6 +184,7 @@ def main():
         test_cfg=cfg.get('test_cfg'))
     model.init_weights()
 
+    logger.info(model)
     datasets = [build_dataset(cfg.data.train)]
     if len(cfg.workflow) == 2:
         val_dataset = copy.deepcopy(cfg.data.val)
@@ -222,5 +223,4 @@ def main():
 
 
 if __name__ == '__main__':
-    # time.sleep(7200)
     main()

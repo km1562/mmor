@@ -48,6 +48,7 @@ class PANHead(HeadMixin, BaseModule):
                  use_non_local_after=False,
                  use_criss_cro_att_after=False,
                  use_resasapp_add_255=False,
+                 use_Spa_Tran=False,
                  init_cfg=dict(
                      type='Normal',
                      mean=0,
@@ -78,6 +79,9 @@ class PANHead(HeadMixin, BaseModule):
         self.train_cfg = train_cfg
         self.test_cfg = test_cfg
 
+        self.use_Spa_Tran = use_Spa_Tran
+        if self.use_Spa_Tran:
+            self.Spa_Tran = SpatialTransformer()
 
 
         # self.out_conv = ConvModule(np.sum(np.array(in_channels)), out_channels, 3, stride=1, padding=1, norm_cfg=dict(type='BN'), act_cfg=dict(type='LeakyReLU'))
@@ -130,6 +134,8 @@ class PANHead(HeadMixin, BaseModule):
         if self.use_criss_cro_att_after:
             self.criss_cro_att_after = CrissCrossAttention(in_dim=out_channels)
 
+
+
     def forward(self, inputs):
         r"""
         Args:
@@ -149,6 +155,8 @@ class PANHead(HeadMixin, BaseModule):
         if self.use_resasapp_add_255:
             outputs = self.asapp_add_255(outputs)
 
+        if self.use_Spa_Tran:
+            outputs= self.Spa_Tran(outputs)
 
         if self.use_resasapp:
             outputs = self.asapp(outputs)
@@ -169,6 +177,9 @@ class PANHead(HeadMixin, BaseModule):
 
         if self.use_criss_cro_att_after:
             outputs = self.criss_cro_att_after(outputs)
+
+
+
         return outputs
 
 class Init_ASPP_ADD(BaseModule, nn.Module):
@@ -475,3 +486,34 @@ class VIT(nn.Module):
     def forward(self,x):
         feature = self.m(x)
         return feature
+
+class SpatialTransformer(nn.Module):
+    # def __init__(self, spatial_dims):
+    def __init__(self,):
+        super(SpatialTransformer, self).__init__()
+
+        self.conv = nn.Conv2d(256,32, 3, 1)
+        self.max_pool = nn.AdaptiveMaxPool2d(4)
+        self.fc1 = nn.Linear(32*4*4, 1024) # 可根据自己的网络参数具体设置
+        self.fc2 = nn.Linear(1024, 6)
+
+
+    def forward(self, x):
+        _, in_ch, h, w = x.shape
+        batch_images = x #保存一份原始数据
+
+        x = self.conv(x)
+        x = self.max_pool(x)
+
+        x = x.view(-1, 32*4*4)
+        # 利用FC结构学习到6个参数
+        x = self.fc1(x)
+        x = self.fc2(x)
+        x = x.view(-1, 2, 3) # 2x3
+        # 利用affine_grid生成采样点
+        affine_grid_points = F.affine_grid(x, torch.Size((x.size(0), in_ch, h, w)))
+        # 将采样点作用到原始数据上
+        rois = F.grid_sample(batch_images, affine_grid_points)
+        return rois
+
+
