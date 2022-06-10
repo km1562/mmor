@@ -83,8 +83,8 @@ test_pipeline_4068_1024 = [
 # train_list = {{_base_.train_list}}
 # test_list = {{_base_.test_list}}
 
-train_pipeline_r50dcnv2 = {{_base_.train_pipeline_r50dcnv2}}
-test_pipeline_4068_1024 = {{_base_.test_pipeline_4068_1024}}
+train_pipeline_r50dcnv2 = train_pipeline_r50dcnv2
+test_pipeline_4068_1024 = test_pipeline_4068_1024
 
 load_from = 'checkpoints/textdet/dbnet/res50dcnv2_synthtext.pth'
 

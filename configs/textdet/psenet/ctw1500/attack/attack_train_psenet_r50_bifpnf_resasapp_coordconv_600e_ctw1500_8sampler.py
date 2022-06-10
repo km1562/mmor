@@ -60,7 +60,6 @@ model_quad = dict(
     train_cfg=None,
     test_cfg=None)
 
-
 model = model_poly
 
 train_list = {{_base_.train_list}}
@@ -70,8 +69,8 @@ train_pipeline = {{_base_.train_pipeline}}
 test_pipeline_ctw1500 = {{_base_.test_pipeline_ctw1500}}
 
 data = dict(
-    samples_per_gpu=10,
-    workers_per_gpu=10,
+    samples_per_gpu=2,
+    workers_per_gpu=2,
     shuffle=False,
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),

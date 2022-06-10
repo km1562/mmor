@@ -192,9 +192,9 @@ class Attack_Runner(Runner):
 
                     filename = data_meta['filename']
                     if filename.find("test") != -1:
-                        filename = filename.replace('test', self.model_name + 'attac_testing' + str(VAR))
+                        filename = filename.replace('test', self.model_name + 'attac_testing_' + str(VAR) + '/test')
                     elif filename.find("training") != -1:
-                        filename = filename.replace('training', +self.model_name + 'attac_training_' + str(VAR))
+                        filename = filename.replace('training', self.model_name + 'attac_training_' + str(VAR) + '/training')
 
                     import os
                     (dir,file) = os.path.split(filename)
