@@ -13,7 +13,7 @@ from shapely.geometry import Polygon as plg
 
 import mmocr.core.evaluation.utils as eval_utils
 from mmocr.utils import check_argument
-
+from mmdet.datasets.pipelines.transforms import CopyPaste
 
 @PIPELINES.register_module()
 class RandomCropInstances:

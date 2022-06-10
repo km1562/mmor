@@ -21,14 +21,78 @@ from apex import amp
 
 from mmcv.runner import Runner, RUNNERS
 
+from mmcv.runner.hooks.optimizer import OptimizerHook, HOOKS
+# from mmcv.runner.hooks import HOOKS
+from mmcv.runner.utils import get_host_info
+from mmcv.runner.epoch_based_runner import *
+from mmcv.image.misc import tensor2imgs
 
-from mmcv.runer.hooks.optimizer import OptimizerHook
-from mmcv.runner.hook import HOOKS
+VAR=0.5
+std = np.array([58.395, 57.12, 57.375])
+mean = np.array([123.675, 116.28, 103.53])
+
+def pert_map(pert, eps):
+    return (1/(1+torch.exp(pert)) -0.5) *2 * eps
+
+
+# def tensor_to_image(t):
+#     img = t.squeeze()
+#     img = img.permute(1,2,0)  #这里需要换嘛
+#
+#     img = img * torch.tensor(std,device=img.device) + torch.tensor(mean,device=img.device)
+#     img *= 255.0
+#     img = img.detach().cpu().numpy()
+#     return img
+
+
+def tensor2imgs(tensor, mean=None, std=None, to_rgb=True):
+    """Convert tensor to 3-channel images or 1-channel gray images.
+
+    Args:
+        tensor (torch.Tensor): Tensor that contains multiple images, shape (
+            N, C, H, W). :math:`C` can be either 3 or 1.
+        mean (tuple[float], optional): Mean of images. If None,
+            (0, 0, 0) will be used for tensor with 3-channel,
+            while (0, ) for tensor with 1-channel. Defaults to None.
+        std (tuple[float], optional): Standard deviation of images. If None,
+            (1, 1, 1) will be used for tensor with 3-channel,
+            while (1, ) for tensor with 1-channel. Defaults to None.
+        to_rgb (bool, optional): Whether the tensor was converted to RGB
+            format in the first place. If so, convert it back to BGR.
+            For the tensor with 1 channel, it must be False. Defaults to True.
+
+    Returns:
+        list[np.ndarray]: A list that contains multiple images.
+    """
+
+    if torch is None:
+        raise RuntimeError('pytorch is not installed')
+    assert torch.is_tensor(tensor) and tensor.ndim == 4
+    channels = tensor.size(1)
+    assert channels in [1, 3]
+    if mean is None:
+        mean = (0, ) * channels
+    if std is None:
+        std = (1, ) * channels
+    assert (channels == len(mean) == len(std) == 3) or \
+        (channels == len(mean) == len(std) == 1 and not to_rgb)
+
+    num_imgs = tensor.size(0)
+    mean = np.array(mean, dtype=np.float32)
+    std = np.array(std, dtype=np.float32)
+    imgs = []
+    for img_id in range(num_imgs):
+        img = tensor[img_id, ...].cpu().detach().numpy().transpose(1, 2, 0)
+        img = mmcv.imdenormalize(
+            img, mean, std, to_bgr=to_rgb).astype(np.uint8)
+        imgs.append(np.ascontiguousarray(img))
+    return imgs
 
 @HOOKS.register_module()
-class Attack_OptimizerHook(Hook):
+class Attack_OptimizerHook(OptimizerHook):
     def after_train_iter(self, runner):
-        runner.optimizer.zero_grad()
+        # runner.optimizer.zero_grad()
+        runner.model.zero_grad()
         if self.detect_anomalous_params:
             self.detect_anomalous_parameters(runner.outputs['loss'], runner)
         runner.outputs['loss'].backward()
@@ -48,6 +112,19 @@ class Attack_Runner(Runner):
 
     This runner train models epoch by epoch.
     """
+    #TODO 决定存储在哪里
+    def __init__(self, *args, **kwargs):
+        warnings.warn(
+            'Runner was deprecated, please use EpochBasedRunner instead',
+            DeprecationWarning)
+        super().__init__(*args, **kwargs)
+
+        # sefl.out_file = self.m
+        self.alpha=0.2
+
+        self.eps = 15 / 255 / VAR
+        # self.
+
 
     def run_iter(self, data_batch, train_mode, **kwargs):
         if self.batch_processor is not None:
@@ -74,48 +151,74 @@ class Attack_Runner(Runner):
         self.call_hook('before_train_epoch')
         time. sleep(2)  # Prevent possible deadlock during epoch transition
 
-        self.iter = 30
+
         for i, data_batch in enumerate(self.data_loader):  #所有图片
 
             self._inner_iter = i
-            attack_train(data_batch)
+            self.attack_train(data_batch, **kwargs)
+
             self._iter += 1
 
         self.call_hook('after_train_epoch')
         self._epoch += 1
 
-    def attck_train(self, data_batch):
-        pertur = torch.zeros(img.shape)
-        for j in len(self.iter):
+    def attack_train(self, data_batch, **kwargs):
+        img = data_batch['img'].data[0]  # img的数据
+        img_meta = data_batch['img_metas'].data[0][0]
+        pertur = torch.zeros(img.shape, device=img.device)
+        iter = 30
+
+
+        for j in range(iter):
             self.call_hook('before_train_iter')
 
+            # if j == 0:
+            #     print(f"origin img{img}", img)
+            #     ori_img = img
             pertur.requires_grad = True
-            perturbation = pertur.cuda()
-            img = data_batch['img'].data[0]  # img的数据
-
-            attact_img = img + pertur
+            # perturbation = pertur.cuda()
+            pertur_map = pert_map(pertur, self.eps)
+            # print(pertur_map)
+            attact_img = img + pertur_map
             data_batch['img']._data = attact_img
 
             # 每次iteration更新
             self.run_iter(data_batch, train_mode=True, **kwargs)
-            if runner.outputs['loss'] < 0.05 or j == self.iter - 1:
-                img = data_batch['img'].data[0]
-                data_list = data_batch['img_metas'].data[0]
-                for data_meta in data_list:
-                    filename = data_mata['filename']
-                    filename.replace('training', 'attac_training')
+
+            if self.outputs['loss'] < 0.05 or j == iter - 1:
+                img = data_batch['img'].data
+                data_meata_list = data_batch['img_metas'].data[0]
+                for idx, data_meta in enumerate(data_meata_list):  #
+
+                    filename = data_meta['filename']
+                    if filename.find("test") != -1:
+                        filename = filename.replace('test', self.model_name + 'attac_testing' + str(VAR))
+                    elif filename.find("training") != -1:
+                        filename = filename.replace('training', +self.model_name + 'attac_training_' + str(VAR))
+
                     import os
                     (dir,file) = os.path.split(filename)
                     if not os.path.exists(dir):
-                        os.mkdirs(dir)
+                        os.makedirs(dir)
                     import cv2
-                    cv2.imwrite(filename, img.astype(int))
-                    break
 
-            print("cost :" ,runner.outputs['loss'])
+                    save_ing = img[idx]
+                    # print(f"iter 30 {img}", img)
+                    save_img = tensor2imgs(
+                        save_ing.unsqueeze(0), **img_meta.get('img_norm_cfg', {}))[0]
+                    cv2.imwrite(filename, save_img.astype(int))
+                    print(f"{file} write success in {filename}" )
+                    # sleep(60)
+                    # return
+
+            # if j == iter - 1:
+            #     print(f"第{j}次 cost : {self.outputs['loss']}" ,j, self.outputs['loss'])
+
             self.call_hook('after_train_iter')
-            pertur = pertur - alpha * grad.sign()
-            pertur.detach()
+            pertur = pertur - self.alpha * pertur.grad.sign()
+            # print(pertur)
+            # print(pertur.grad)
+            pertur = pertur.detach()
 
 
     def run(self, data_loaders, workflow, max_epochs=None, **kwargs):
@@ -180,9 +283,6 @@ class Attack_Runner(Runner):
 
         time.sleep(1)  # wait for some hooks like loggers to finish
         self.call_hook('after_run')
-
-
-
 
 
 def train_detector(model,
@@ -253,6 +353,11 @@ def train_detector(model,
         warnings.warn(
             'config is now expected to have a `runner` section, '
             'please set `runner` in your config.', UserWarning)
+    elif "runner" in cfg:
+        cfg.runner = {
+            'type': cfg.runner,
+            'max_epochs': cfg.total_epochs
+        }
     else:
         if 'total_epochs' in cfg:
             assert cfg.total_epochs == cfg.runner.max_epochs
