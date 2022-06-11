@@ -144,7 +144,8 @@ def single_gpu_test(model,
                         result[j],
                         show=show,
                         out_file=out_file,
-                        score_thr=show_score_thr)
+                        score_thr=show_score_thr,
+                        thickness=2)
 
         # encode mask results
         if isinstance(result[0], tuple):
