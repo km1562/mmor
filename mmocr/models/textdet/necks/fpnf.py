@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import ConvModule
-from mmcv.runner import BaseModule, ModuleList, auto_fp16
+from mmcv.runner import BaseModule, ModuleList, auto_fp16, Sequential
 
 from mmocr.models.builder import NECKS
 
@@ -277,6 +277,7 @@ class SingleBiFPN(BaseModule):
             use_asf=False,
             use_CBAM=False,
             use_SE=False,
+            use_CBAM_backward=False,
             mode='bilinear',
             init_cfg=dict(
                 type='Xavier', layer='Conv2d', distribution='uniform')):
@@ -462,6 +463,11 @@ class SingleBiFPN(BaseModule):
             self.CBAM_One = CBAM(inchannels=256)
             self.CBAM_Two = CBAM(inchannels=512)
 
+        self.use_CBAM_backward = use_CBAM_backward
+        if self.use_CBAM_backward:
+            self.CBAM_backward_One = CBAM(inchannels=256)
+            self.CBAM_backward_TWO = CBAM(inchannels=512)
+
         self.use_SE = use_SE
         if self.use_SE:
             self.SE_Block = SE_Block(256)
@@ -519,6 +525,7 @@ class SingleBiFPN(BaseModule):
                     )
                     # input_node = self.down_conv(input_node)
 
+                #向上的分支
                 elif h <= target_h and w <= target_w:
                     if h < target_h or w < target_w:
                         input_node = F.interpolate(
@@ -566,6 +573,14 @@ class SingleBiFPN(BaseModule):
 
         # return output_feats
         # build top-down path
+        #
+        # print("________________________")
+        # print(output_feats.shape)
+
+        # if self.use_CBAM_backward:
+        #     output_feats[0] = self.CBAM_backward_One(output_feats[0])
+        #     output_feats[1] = self.CBAM_backward_One(output_feats[1])
+
         used_backbone_levels = len(output_feats)
         for i in range(used_backbone_levels - 1, 0, -1):
             # step 1: upsample to level i-1 size and add level i-1
@@ -1065,16 +1080,20 @@ class BiFPN_PARTS(BaseModule):
         # return out
 
 
-class Channel_Attention(nn.Module):
-    def __init__(self, inchannels=256, ratio=16):
-        super(Channel_Attention, self).__init__()
+class Channel_Attention(BaseModule):
+    def __init__(self, inchannels=256, ratio=16,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
 
-        self.fc = nn.Sequential(
-            nn.Conv2d(inchannels, inchannels // ratio, 1, bias=False),
+        self.fc = Sequential(
+            # nn.Conv2d(inchannels, inchannels // ratio, 1, bias=False),
+            ConvModule(inchannels, inchannels // ratio, kernel_size=1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(inchannels // ratio, inchannels, 1, bias=False)
+            # nn.Conv2d(inchannels // ratio, inchannels, 1, bias=False)
+            ConvModule(inchannels // ratio, inchannels, kernel_size=1, bias=False),
         )
         self.sigmoid = nn.Sigmoid()
 
@@ -1084,10 +1103,12 @@ class Channel_Attention(nn.Module):
         out = avg_out + max_out  #(B, C, 1, 1)
         return self.sigmoid(out) #(B, C, 1, 1)
 
-class Spatial_Channel(nn.Module):
-    def __init__(self, kernel_size=7):
-        super(Spatial_Channel, self).__init__()
-        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2,bias=False)
+class Spatial_Channel(BaseModule):
+    def __init__(self, kernel_size=7, init_cfg=dict(
+                type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
+        # self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2,bias=False) #这里梯度就不更新了。
+        self.conv1 = ConvModule(in_channels=2, out_channels=1, kernel_size=kernel_size, padding=kernel_size // 2, bias=False),
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -1097,9 +1118,11 @@ class Spatial_Channel(nn.Module):
         x = self.conv1(x) # (B, 1, H, W)
         return self.sigmoid(x) #(B, 1, H, W)
 
-class CBAM(nn.Module):
-    def __init__(self, inchannels=256, ratio=16):
-        super(CBAM, self).__init__()
+class CBAM(BaseModule):
+    def __init__(self, inchannels=256, ratio=16,
+                 init_cfg=dict(
+                     type='Xavier', layer='Conv2d', distribution='uniform')):
+        super().__init__(init_cfg=init_cfg)
         self.channel_attention = Channel_Attention(inchannels, ratio)
         self.spatial_channel = Spatial_Channel()
 

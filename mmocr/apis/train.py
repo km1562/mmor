@@ -17,7 +17,7 @@ from mmocr.apis.utils import (disable_text_recog_aug_test,
                               replace_image_to_tensor)
 from mmocr.utils import get_root_logger
 
-from apex import amp
+# from apex import amp
 
 from mmcv.runner import Runner, RUNNERS
 

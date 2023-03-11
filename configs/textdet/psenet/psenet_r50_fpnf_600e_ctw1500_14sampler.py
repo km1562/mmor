@@ -16,7 +16,7 @@ test_pipeline_ctw1500 = {{_base_.test_pipeline_ctw1500}}
 
 data = dict(
     samples_per_gpu=14,
-    workers_per_gpu=2,
+    workers_per_gpu=14,
     val_dataloader=dict(samples_per_gpu=1),
     test_dataloader=dict(samples_per_gpu=1),
     train=dict(
